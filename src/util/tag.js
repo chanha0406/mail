@@ -21,6 +21,15 @@ export function translateTagDisplayName(tag) {
 	return tag.displayName
 }
 
+/**
+ * @param {string} color The tag color as hex string.
+ * @param {boolean} isDarkTheme Whether the dark theme is active.
+ * @return {string} A text color readable on the current theme.
+ */
+export function tagTextColor(color, isDarkTheme) {
+	return isDarkTheme ? `oklch(from ${color} max(l, 0.7) c h)` : color
+}
+
 export function validateTag(tagId, tagName, otherTags) {
 	const testableDisplayName = tagName.toLowerCase().trim()
 
