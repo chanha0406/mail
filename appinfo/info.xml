@@ -63,6 +63,7 @@ Learn more about the Nextcloud Ethical AI Rating [in our blog](https://nextcloud
 		<job>OCA\Mail\BackgroundJob\DraftsJob</job>
 		<job>OCA\Mail\BackgroundJob\TrashRetentionJob</job>
 		<job>OCA\Mail\BackgroundJob\WakeJob</job>
+		<job>OCA\Mail\BackgroundJob\BodyCacheJob</job>
 	</background-jobs>
 	<repair-steps>
 		<post-migration>

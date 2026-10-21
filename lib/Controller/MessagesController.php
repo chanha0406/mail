@@ -29,6 +29,7 @@ use OCA\Mail\IMAP\IMAPClientFactory;
 use OCA\Mail\Model\SmimeData;
 use OCA\Mail\Service\AccountService;
 use OCA\Mail\Service\AiIntegrations\AiIntegrationsService;
+use OCA\Mail\Service\BodyCacheService;
 use OCA\Mail\Service\DelegationService;
 use OCA\Mail\Service\ItineraryService;
 use OCA\Mail\Service\SmimeService;
@@ -90,6 +91,7 @@ class MessagesController extends Controller {
 		private AiIntegrationsService $aiIntegrationService,
 		private ICacheFactory $cacheFactory,
 		private DelegationService $delegationService,
+		private ?BodyCacheService $bodyCache = null,
 	) {
 		parent::__construct($appName, $request);
 		$this->l10n = $l10n;
@@ -213,22 +215,45 @@ class MessagesController extends Controller {
 		$cacheInstance = $this->getCacheForAccount($account->getId());
 		$imapMessageCacheKey = "message_$id";
 
-		$client = $this->clientFactory->getClient($account);
-		try {
-			$imapMessage = $this->mailManager->getImapMessage(
-				$client,
-				$account,
-				$mailbox,
-				$message->getUid(), true
-			);
-
-			if ($imapMessage->hasHtmlMessage()) {
-				$cacheInstance->set($imapMessageCacheKey, $imapMessage->getHtmlBody($id), 600);
+		// Self-hosted fork: a prefetched body skips the IMAP login and fetch
+		$stored = $this->bodyCache?->find($message, $account->getId());
+		if ($stored !== null) {
+			$json = $stored['full'];
+			// May be another copy of the message (Gmail labels): use this row's UID
+			$json['uid'] = $message->getUid();
+			$json['flags'] = array_merge($json['flags'] ?? [], array_intersect_key($message->jsonSerialize()['flags'], $json['flags'] ?? []));
+			if ($stored['html'] !== null) {
+				$cacheInstance->set($imapMessageCacheKey, $stored['html'], 600);
 			}
+			$isEncrypted = $stored['encrypted'];
+			$isSigned = $stored['signed'];
+			$signatureValid = $stored['signatureValid'];
+		} else {
+			$client = $this->clientFactory->getClient($account);
+			try {
+				$imapMessage = $this->mailManager->getImapMessage(
+					$client,
+					$account,
+					$mailbox,
+					$message->getUid(), true
+				);
 
-			$json = $imapMessage->getFullMessage($id);
-		} finally {
-			$client->logout();
+				if ($imapMessage->hasHtmlMessage()) {
+					$cacheInstance->set($imapMessageCacheKey, $imapMessage->getHtmlBody($id), 600);
+				}
+
+				$json = $imapMessage->getFullMessage($id);
+			} finally {
+				$client->logout();
+			}
+			$isEncrypted = $imapMessage->isEncrypted();
+			$isSigned = $imapMessage->isSigned();
+			$signatureValid = $isSigned ? $imapMessage->isSignatureValid() : null;
+			try {
+				$this->bodyCache?->put($account->getUserId(), $account->getId(), $message, $imapMessage);
+			} catch (\Throwable $e) {
+				$this->logger->debug('Could not store the message body: ' . $e->getMessage(), ['exception' => $e]);
+			}
 		}
 
 		$itineraries = $this->itineraryService->getCached($account, $mailbox, $message->getUid());
@@ -243,10 +268,10 @@ class MessagesController extends Controller {
 		$json['isSenderTrusted'] = $this->isSenderTrusted($message);
 
 		$smimeData = new SmimeData();
-		$smimeData->setIsEncrypted($message->isEncrypted() || $imapMessage->isEncrypted());
-		if ($imapMessage->isSigned()) {
+		$smimeData->setIsEncrypted($message->isEncrypted() || $isEncrypted);
+		if ($isSigned) {
 			$smimeData->setIsSigned(true);
-			$smimeData->setSignatureIsValid($imapMessage->isSignatureValid());
+			$smimeData->setSignatureIsValid((bool)$signatureValid);
 		}
 		$json['smime'] = $smimeData;
 
@@ -691,7 +716,7 @@ class MessagesController extends Controller {
 			$cacheInstance = $this->getCacheForAccount($account->getId());
 			$imapMessageCacheKey = "message_$id";
 
-			$html = $cacheInstance->get($imapMessageCacheKey);
+			$html = $cacheInstance->get($imapMessageCacheKey) ?? ($this->bodyCache?->find($message, $account->getId())['html'] ?? null);
 			if ($html === null) {
 				$client = $this->clientFactory->getClient($account);
 				try {

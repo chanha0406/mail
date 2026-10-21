@@ -636,6 +636,23 @@
     "Edit name or color" : "이름 또는 색깔 편집",
     "Set tag" : "태그 설정",
     "Unset tag" : "태그 설정 해제",
-    "Add default tags" : "기본 태그 추가"
+    "Add default tags" : "기본 태그 추가",
+    "Show less" : "적게 보기",
+    "Show more" : "더 보기",
+    "* %USERID% and %EMAIL% will be replaced with the user's UID and email" : "* %USERID%와(과) %EMAIL%이(가) 사용자의 UID와 이메일로 대체됩니다",
+    "Message prefetch" : "메일 미리 받기",
+    "Bodies of recent messages are fetched in the background and kept on this server, so messages open without waiting for slow mail servers. Users choose their own days and storage up to these limits." : "최근 메일 본문을 백그라운드에서 미리 받아 이 서버에 보관합니다. 느린 메일 서버를 기다리지 않고 바로 열립니다. 사용자는 이 한도 안에서 기간과 용량을 직접 정합니다.",
+    "Maximum days per user (-1 unlimited, 0 turns prefetching off)" : "사용자별 최대 기간(일, -1이면 무제한, 0이면 끔)",
+    "Maximum storage per user in MB (-1 unlimited)" : "사용자별 최대 용량(MB, -1이면 무제한)",
+    "Stored now: {size} in {count} messages for all users" : "현재 보관: 전체 사용자 {count}통, {size}",
+    "Message prefetch settings saved" : "메일 미리 받기 설정을 저장했습니다",
+    "Could not save the message prefetch settings" : "메일 미리 받기 설정을 저장하지 못했습니다",
+    "The administrator has turned message prefetching off." : "관리자가 메일 미리 받기를 꺼 두었습니다.",
+    "Bodies of recent messages are fetched in the background so they open without waiting for the mail server. Messages deleted on the server are removed here too." : "최근 메일 본문을 백그라운드에서 미리 받아 두어 메일 서버를 기다리지 않고 바로 엽니다. 서버에서 지운 메일은 여기서도 지워집니다.",
+    "Days to keep (-1 unlimited, 0 turns it off). Limit: {max}" : "보관 기간(일, -1이면 무제한, 0이면 끔). 한도: {max}",
+    "Storage limit in MB (-1 unlimited). Limit: {max}" : "용량 한도(MB, -1이면 무제한). 한도: {max}",
+    "Stored now: {size} in {count} messages" : "현재 보관: {count}통, {size}",
+    "unlimited" : "무제한",
+    "Archived, starred and important messages are kept regardless of days and storage limit: {size} in {count} messages" : "보관함·즐겨찾기·중요 메일은 기간·용량과 상관없이 남깁니다: {count}통, {size}"
 },"pluralForm" :"nplurals=1; plural=0;"
 }

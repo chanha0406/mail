@@ -361,6 +361,26 @@ return [
 			'verb' => 'PUT'
 		],
 		[
+			'name' => 'body_cache#showAdmin',
+			'url' => '/api/settings/body-cache',
+			'verb' => 'GET'
+		],
+		[
+			'name' => 'body_cache#updateAdmin',
+			'url' => '/api/settings/body-cache',
+			'verb' => 'PUT'
+		],
+		[
+			'name' => 'body_cache#show',
+			'url' => '/api/body-cache',
+			'verb' => 'GET'
+		],
+		[
+			'name' => 'body_cache#update',
+			'url' => '/api/body-cache',
+			'verb' => 'PUT'
+		],
+		[
 			'name' => 'trusted_senders#setTrusted',
 			'url' => '/api/trustedsenders/{email}',
 			'verb' => 'PUT'

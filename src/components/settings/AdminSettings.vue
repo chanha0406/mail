@@ -246,6 +246,15 @@
 			<MicrosoftAdminOauthSettings :tenant-id="microsoftOauthTenantId" :client-id="microsoftOauthClientId" />
 		</div>
 		<div class="app-description">
+			<h3>{{ t('mail', 'Message prefetch') }}</h3>
+			<article>
+				<p>
+					{{ t('mail', 'Bodies of recent messages are fetched in the background and kept on this server, so messages open without waiting for slow mail servers. Users choose their own days and storage up to these limits.') }}
+				</p>
+			</article>
+			<BodyCacheAdminSettings />
+		</div>
+		<div class="app-description">
 			<h3>{{ t('mail', 'User Interface Preference Defaults') }}</h3>
 			<article>
 				<p>
@@ -289,6 +298,7 @@ import NcSettingsSection from '@nextcloud/vue/components/NcSettingsSection'
 import IconSettings from 'vue-material-design-icons/CogOutline.vue'
 import IconAdd from 'vue-material-design-icons/Plus.vue'
 import AntiSpamSettings from './AntiSpamSettings.vue'
+import BodyCacheAdminSettings from './BodyCacheAdminSettings.vue'
 import GmailAdminOauthSettings from './GmailAdminOauthSettings.vue'
 import MicrosoftAdminOauthSettings from './MicrosoftAdminOauthSettings.vue'
 import ProvisioningSettings from './ProvisioningSettings.vue'
@@ -314,6 +324,7 @@ const microsoftOauthRedirectUrl = loadState('mail', 'microsoft_oauth_redirect_ur
 export default {
 	name: 'AdminSettings',
 	components: {
+		BodyCacheAdminSettings,
 		GmailAdminOauthSettings,
 		AntiSpamSettings,
 		MicrosoftAdminOauthSettings,

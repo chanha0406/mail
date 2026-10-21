@@ -185,6 +185,10 @@
 				</NcFormGroup>
 			</NcAppSettingsSection>
 
+			<NcAppSettingsSection id="body-cache" :name="t('mail', 'Message prefetch')">
+				<BodyCacheSettings />
+			</NcAppSettingsSection>
+
 			<NcAppSettingsSection id="privacy" :name="t('mail', 'Privacy')">
 				<NcFormBoxSwitch
 					v-model="useDataCollection"
@@ -324,6 +328,7 @@ import IconDomain from 'vue-material-design-icons/Domain.vue'
 import CompactMode from 'vue-material-design-icons/ListBoxOutline.vue'
 import IconMedal from 'vue-material-design-icons/MedalOutline.vue'
 import IconAdd from 'vue-material-design-icons/Plus.vue'
+import BodyCacheSettings from './BodyCacheSettings.vue'
 import InternalAddress from './InternalAddress.vue'
 import SmimeCertificateModal from './smime/SmimeCertificateModal.vue'
 import List from './textBlocks/List.vue'
@@ -335,6 +340,7 @@ import useMainStore from '../store/mainStore.js'
 export default {
 	name: 'AppSettingsMenu',
 	components: {
+		BodyCacheSettings,
 		TrustedSenders,
 		InternalAddress,
 		NcButton,
