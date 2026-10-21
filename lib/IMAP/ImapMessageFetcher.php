@@ -475,19 +475,10 @@ class ImapMessageFetcher {
 	 */
 	private function loadBodyData(Horde_Mime_Part $p, string $partNo, bool $isFetched): string {
 		if (!$isFetched) {
-			$fetch_query = new Horde_Imap_Client_Fetch_Query();
-			$ids = new Horde_Imap_Client_Ids($this->uid);
-
-			$fetch_query->bodyPart($partNo, [
-				'peek' => true
-			]);
-			$fetch_query->mimeHeader($partNo, [
-				'peek' => true
-			]);
-
-			$headers = $this->client->fetch($this->mailbox, $fetch_query, ['ids' => $ids]);
-			/* @var $fetch Horde_Imap_Client_Data_Fetch */
-			$fetch = $headers[$this->uid];
+			// Some servers (Kakao) return nothing for BODY[1.MIME] of a
+			// single-part message, which empties the whole FETCH. The
+			// encoding is already known from BODYSTRUCTURE, so retry without.
+			$fetch = $this->fetchBodyPart($partNo, true) ?? $this->fetchBodyPart($partNo, false);
 			if (is_null($fetch)) {
 				throw new DoesNotExistException("Mail body for this mail($this->uid) could not be loaded");
 			}
@@ -502,6 +493,20 @@ class ImapMessageFetcher {
 		}
 
 		return $this->converter->convert($p);
+	}
+
+	private function fetchBodyPart(string $partNo, bool $withMimeHeader): ?Horde_Imap_Client_Data_Fetch {
+		$query = new Horde_Imap_Client_Fetch_Query();
+		$query->bodyPart($partNo, [
+			'peek' => true
+		]);
+		if ($withMimeHeader) {
+			$query->mimeHeader($partNo, [
+				'peek' => true
+			]);
+		}
+		$result = $this->client->fetch($this->mailbox, $query, ['ids' => new Horde_Imap_Client_Ids($this->uid)]);
+		return $result[$this->uid];
 	}
 
 	private function hasAttachments(Horde_Mime_Part $part): bool {

@@ -762,6 +762,16 @@ class MessageMapper {
 		$uids = new Horde_Imap_Client_Ids($messageUid);
 		$headers = $client->fetch($mailbox, $query, ['ids' => $uids]);
 		if (!isset($headers[$messageUid])) {
+			// Some servers (Kakao) return nothing for BODY[n.MIME] of a
+			// single-part message. Retry without the MIME header.
+			$query = new Horde_Imap_Client_Fetch_Query();
+			$query->bodyPart($attachmentId, [
+				'peek' => true,
+			]);
+			$this->smimeService->addEncryptionCheckQueries($query);
+			$headers = $client->fetch($mailbox, $query, ['ids' => $uids]);
+		}
+		if (!isset($headers[$messageUid])) {
 			throw new DoesNotExistException('Unable to load the attachment.');
 		}
 
@@ -937,7 +947,23 @@ class MessageMapper {
 			]);
 			/** @var Horde_Imap_Client_Data_Fetch $part */
 			$part = $parts[$fetchData->getUid()];
-			// This is sus - why does this even happen? A delete / move in the middle of this processing?
+			if ($part === null) {
+				// Some servers (Kakao) return nothing for BODY[n.MIME] of a
+				// single-part message, which empties the whole FETCH. Retry
+				// without; convertBody() falls back to the message headers.
+				$bodyOnly = new Horde_Imap_Client_Fetch_Query();
+				foreach ([$htmlBodyId, $textBodyId] as $bodyId) {
+					if ($bodyId !== null) {
+						$bodyOnly->bodyPart($bodyId, [
+							'peek' => true,
+						]);
+					}
+				}
+				$part = $client->fetch($mailbox, $bodyOnly, [
+					'ids' => new Horde_Imap_Client_Ids([$fetchData->getUid()]),
+				])[$fetchData->getUid()];
+			}
+			// A delete / move in the middle of this processing
 			if ($part === null) {
 				return new MessageStructureData($hasAttachments, $text, $isImipMessage, $isEncrypted, false);
 			}
