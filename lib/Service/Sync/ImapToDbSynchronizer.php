@@ -344,18 +344,42 @@ class ImapToDbSynchronizer {
 			$noCacheClient->logout();
 		}
 
-		// Use the cache-enabled $client passed in for the sync token. The no-cache
-		// client does not activate CONDSTORE/QRESYNC (commit 7980d9e40), so its
-		// token lacks HIGHESTMODSEQ — causing the first partial sync to resolve ALL
-		// UIDs and run OOM on large mailboxes. Do NOT logout $client here; the
-		// caller (syncAccount) owns and closes it.
-		$syncToken = $client->getSyncToken($mailbox->getName());
+		// The cache-enabled client is required so CONDSTORE/QRESYNC servers put
+		// HIGHESTMODSEQ in the token (commit 7980d9e40). That client sat idle
+		// during the fetch above, and Naver closes it before getSyncToken().
+		// Open a new one. The caller still owns and closes $client.
+		$syncToken = $this->syncToken($client, $account, $mailbox, $logger);
 		$mailbox->setSyncNewToken($syncToken);
 		$mailbox->setSyncChangedToken($syncToken);
 		$mailbox->setSyncVanishedToken($syncToken);
 		$this->mailboxMapper->update($mailbox);
 
 		$perf->end();
+	}
+
+	private function syncToken(
+		Horde_Imap_Client_Base $client,
+		Account $account,
+		Mailbox $mailbox,
+		LoggerInterface $logger): string {
+		try {
+			return $client->getSyncToken($mailbox->getName());
+		} catch (Horde_Imap_Client_Exception $e) {
+			$logger->warning("IMAP connection dropped before reading the sync token for {$mailbox->getId()}, reconnecting: {$e->getMessage()}");
+		}
+
+		$fresh = $this->clientFactory->getClient($account);
+		try {
+			$fresh->login();
+			return $fresh->getSyncToken($mailbox->getName());
+		} catch (Horde_Imap_Client_Exception $e) {
+			throw new ServiceException('Can not get sync token for mailbox ' . $mailbox->getName() . ': ' . $e->getMessage(), 0, $e);
+		} finally {
+			try {
+				$fresh->logout();
+			} catch (Throwable $e) {
+			}
+		}
 	}
 
 	/**

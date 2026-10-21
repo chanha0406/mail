@@ -1,0 +1,43 @@
+diff --git a/lib/Horde/Imap/Client/Base.php b/lib/Horde/Imap/Client/Base.php
+index 8a6896d8..4239f142 100644
+--- a/lib/Horde/Imap/Client/Base.php
++++ b/lib/Horde/Imap/Client/Base.php
+@@ -4066,7 +4066,18 @@ implements Serializable, SplObserver
+             $out[$sync_map[$val]] = $status[$val];
+         }
+ 
+-        return array_filter($out);
++        // UIDVALIDITY 0 is a real value. Naver's INBOX reports 0, and
++        // array_filter() would drop it. The next sync then treats the
++        // missing value as a mailbox reset and throws away the local cache.
++        return array_filter(
++            $out,
++            static function ($val, $key) {
++                return $key === 'V'
++                    ? $val !== null && $val !== ''
++                    : !empty($val);
++            },
++            ARRAY_FILTER_USE_BOTH
++        );
+     }
+ 
+     /**
+diff --git a/lib/Horde/Imap/Client/Data/Sync.php b/lib/Horde/Imap/Client/Data/Sync.php
+index b0fa0804..82aad451 100644
+--- a/lib/Horde/Imap/Client/Data/Sync.php
++++ b/lib/Horde/Imap/Client/Data/Sync.php
+@@ -152,8 +152,12 @@ class Horde_Imap_Client_Data_Sync
+             }
+         }
+ 
+-        /* Check uidvalidity. */
+-        if (!$this->uidvalidity || ($curr['V'] != $this->uidvalidity)) {
++        /* Check uidvalidity. 0 is valid: PHP treats it as empty, which used
++         * to wipe mailboxes whose server reports UIDVALIDITY 0. */
++        $storedValidity = $sync['V'] ?? null;
++        $currentValidity = $curr['V'] ?? null;
++        if ($storedValidity === null || $currentValidity === null
++            || (string)$currentValidity !== (string)$storedValidity) {
+             throw new Horde_Imap_Client_Exception_Sync('UIDs in cached mailbox have changed.', Horde_Imap_Client_Exception_Sync::UIDVALIDITY_CHANGED);
+         }
+ 

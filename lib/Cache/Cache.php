@@ -93,7 +93,7 @@ class Cache extends Horde_Imap_Client_Cache_Backend {
 			$syncToken = $mailboxEntity->getSyncNewToken();
 			if ($syncToken !== null) {
 				$parsedToken = $this->syncTokenParser->parseSyncToken($syncToken);
-				if ($parsedToken->getUidValidity()) {
+				if ($parsedToken->getUidValidity() !== null) {
 					$cachedMailbox->setUidValidity($parsedToken->getUidValidity());
 				}
 				if ($parsedToken->getHighestModSeq()) {

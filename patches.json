@@ -4,7 +4,7 @@
 			{
 				"description": "Fix to prevent deprecation warning when using PHP >= 8.5",
 				"url": ".patches/url-normalizer-fix-deprecation-warning-on-PHP-8.5.patch",
-				"sha256":"856c3bc4d3e883f86efc3a24946681a3a6e4c22afa67d7b8cb1d78391668c365",
+				"sha256": "856c3bc4d3e883f86efc3a24946681a3a6e4c22afa67d7b8cb1d78391668c365",
 				"extra": {
 					"upstream-fix-url": "https://github.com/glenscott/url-normalizer/pull/33"
 				}
@@ -25,6 +25,13 @@
 				"description": "Fix _rfc822IsAtext treating digit 0 as empty due to PHP empty() quirk",
 				"url": ".patches/horde-mail-rfc822-isAtext-empty-zero.patch",
 				"sha256": "b864ec2b2ba71b37a44c05e69934ec9f95269b8f1cc1ef8352a294e02ae3eb71"
+			}
+		],
+		"bytestream/horde-imap-client": [
+			{
+				"description": "Keep UIDVALIDITY 0 (Naver INBOX) in sync tokens instead of treating it as empty and wiping the cache",
+				"url": ".patches/horde-imap-client-uidvalidity-zero.patch",
+				"sha256": "6bb1c537b7e62bb4dc20c49b5fc937807f3ca84d871d87fcfeaa83aefb20bb48"
 			}
 		]
 	}
