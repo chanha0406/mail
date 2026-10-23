@@ -9,13 +9,17 @@ declare(strict_types=1);
 
 namespace OCA\Mail\BackgroundJob;
 
+use Horde_Imap_Client_Exception;
+use Horde_Imap_Client_Socket;
 use OCA\Mail\Account;
 use OCA\Mail\Contracts\IMailManager;
 use OCA\Mail\Db\MailboxMapper;
 use OCA\Mail\Db\MessageMapper;
+use OCA\Mail\Exception\ServiceException;
 use OCA\Mail\IMAP\IMAPClientFactory;
 use OCA\Mail\Service\AccountService;
 use OCA\Mail\Service\BodyCacheService;
+use OCP\AppFramework\Db\DoesNotExistException;
 use OCP\AppFramework\Utility\ITimeFactory;
 use OCP\BackgroundJob\TimedJob;
 use Psr\Log\LoggerInterface;
@@ -93,7 +97,7 @@ class BodyCacheJob extends TimedJob {
 	/**
 	 * @param list<array{id: int, mailbox_id: int, account_id: int}> $rows
 	 */
-	private function fetchForAccount(string $userId, Account $account, \Horde_Imap_Client_Socket $client, array $rows, int $deadline): void {
+	private function fetchForAccount(string $userId, Account $account, Horde_Imap_Client_Socket $client, array $rows, int $deadline): void {
 		$mailboxes = [];
 		foreach ($rows as $row) {
 			if ($this->time->getTime() >= $deadline) {
@@ -106,18 +110,34 @@ class BodyCacheJob extends TimedJob {
 				}
 				$mailboxes[$row['mailbox_id']] ??= $this->mailboxes->findById($row['mailbox_id']);
 				$imapMessage = $this->mailManager->getImapMessage($client, $account, $mailboxes[$row['mailbox_id']], $message->getUid(), true);
-				if (!$this->cache->put($userId, $account->getId(), $message, $imapMessage)) {
-					// Encrypted, outside the window by now, or no room left
-					$this->cache->markFailed($userId, $account->getId(), $message);
-				}
-			} catch (\Horde_Imap_Client_Exception $e) {
-				if ($e->getCode() === \Horde_Imap_Client_Exception::LOGIN_AUTHENTICATIONFAILED) {
-					// Login is failing: leave the account alone until the next run
+				$result = $this->cache->put($userId, $account->getId(), $message, $imapMessage);
+				if ($result === BodyCacheService::PUT_FULL) {
+					$this->logger->debug('Body prefetch stopped account {accountId}: size limit reached', [
+						'accountId' => $account->getId(),
+					]);
 					return;
 				}
-				$this->failed($userId, $account, $row, $e);
+				if ($result === BodyCacheService::PUT_EXCLUDED) {
+					$this->cache->markFailed($userId, $account->getId(), $message);
+				}
 			} catch (Throwable $e) {
-				$this->failed($userId, $account, $row, $e);
+				if ($this->stopsAccount($e)) {
+					$this->logger->info('Body prefetch stopped account {accountId}: {message}', [
+						'accountId' => $account->getId(),
+						'message' => $e->getMessage(),
+					]);
+					return;
+				}
+				// Only a message that is gone is remembered. Anything else is
+				// tried again on the next run, with no failure row.
+				if ($this->messageIsGone($e)) {
+					$this->failed($userId, $account, $row, $e);
+				} else {
+					$this->logger->debug('Body prefetch left message {id} for the next run: {message}', [
+						'id' => $row['id'],
+						'message' => $e->getMessage(),
+					]);
+				}
 			}
 		}
 	}
@@ -134,5 +154,34 @@ class BodyCacheJob extends TimedJob {
 		if ($message !== null) {
 			$this->cache->markFailed($userId, $account->getId(), $message);
 		}
+	}
+
+	/**
+	 * Authentication failure and a dropped connection end this account's run
+	 * without a failure row. The connection codes are the same ones
+	 * ErrorMiddleware treats as temporary.
+	 */
+	private function stopsAccount(Throwable $e): bool {
+		if ($e instanceof ServiceException && $e->getPrevious() !== null) {
+			$e = $e->getPrevious();
+		}
+		if (!$e instanceof Horde_Imap_Client_Exception) {
+			return false;
+		}
+		return in_array($e->getCode(), [
+			Horde_Imap_Client_Exception::LOGIN_AUTHENTICATIONFAILED,
+			Horde_Imap_Client_Exception::DISCONNECT,
+			Horde_Imap_Client_Exception::SERVER_READERROR,
+			Horde_Imap_Client_Exception::SERVER_WRITEERROR,
+		], true);
+	}
+
+	/**
+	 * getImapMessage wraps a missing message in ServiceException. That is the
+	 * only failure kept, so the job does not fetch it on every run.
+	 */
+	private function messageIsGone(Throwable $e): bool {
+		return $e instanceof ServiceException
+			&& $e->getPrevious() instanceof DoesNotExistException;
 	}
 }

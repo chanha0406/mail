@@ -29,6 +29,7 @@ use OCA\Mail\Model\IMAPMessage;
 use OCA\Mail\Model\SmimeDecryptionResult;
 use OCA\Mail\Service\SmimeService;
 use OCA\Mail\Support\PerformanceLoggerTask;
+use OCP\AppFramework\Db\DoesNotExistException;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\LoggerInterface;
 use function range;
@@ -993,5 +994,96 @@ class MessageMapperTest extends TestCase {
 		$this->assertEquals('nextcloud.png', $attachment->getName());
 		$this->assertEquals('image/png', $attachment->getType());
 		$this->assertEquals('inline', $attachment->disposition);
+	}
+
+	public function testGetAttachmentRetriesWithoutMimeAndKeepsSmimeQuery(): void {
+		$messageUid = 1;
+		$attachmentId = '1';
+		$bodyContent = 'hello';
+		$headerText = "Content-Type: text/plain\r\nContent-Transfer-Encoding: 7bit\r\n";
+		$fetchData = new Horde_Imap_Client_Data_Fetch();
+		$fetchData->setMimeHeader($attachmentId, $headerText);
+		$fetchData->setBodyPart($attachmentId, $bodyContent);
+		$fetchData->setUid($messageUid);
+		$hit = new Horde_Imap_Client_Fetch_Results();
+		$hit[$messageUid] = $fetchData;
+		$miss = new Horde_Imap_Client_Fetch_Results();
+
+		$seen = [];
+		$imapClient = $this->createMock(Horde_Imap_Client_Base::class);
+		$imapClient->expects($this->exactly(2))
+			->method('fetch')
+			->willReturnOnConsecutiveCalls($miss, $hit);
+		$this->sMimeService->expects($this->exactly(2))
+			->method('addEncryptionCheckQueries')
+			->willReturnCallback(function (Horde_Imap_Client_Fetch_Query $query) use (&$seen): void {
+				$seen[] = $query->contains(Horde_Imap_Client::FETCH_MIMEHEADER);
+				$query->headerText(['peek' => true]);
+			});
+		$this->sMimeService->method('isEncrypted')->willReturn(false);
+
+		$attachment = $this->mapper->getAttachment(
+			$imapClient,
+			'INBOX',
+			$messageUid,
+			$attachmentId,
+			'alice',
+		);
+
+		$this->assertSame([true, false], $seen);
+		$this->assertEquals($bodyContent, $attachment->getContent());
+	}
+
+	public function testGetAttachmentMissingMessageFetchesTwice(): void {
+		$messageUid = 1;
+		$imapClient = $this->createMock(Horde_Imap_Client_Base::class);
+		$imapClient->expects($this->exactly(2))
+			->method('fetch')
+			->willReturn(new Horde_Imap_Client_Fetch_Results());
+		$this->sMimeService->expects($this->exactly(2))
+			->method('addEncryptionCheckQueries');
+
+		$this->expectException(DoesNotExistException::class);
+		$this->mapper->getAttachment($imapClient, 'INBOX', $messageUid, '1', 'alice');
+	}
+
+	public function testGetBodyStructureRetriesWithoutMimeHeader(): void {
+		$messageId = 100;
+		$part = new Horde_Mime_Part();
+		$part->setType('text/plain');
+		$structureData = new Horde_Imap_Client_Data_Fetch();
+		$structureData->setStructure($part);
+		$structureData->setUid($messageId);
+		$structureResult = new Horde_Imap_Client_Fetch_Results();
+		$structureResult[$messageId] = $structureData;
+
+		$bodyData = new Horde_Imap_Client_Data_Fetch();
+		$bodyData->setUid($messageId);
+		$bodyData->setBodyPart('1', 'hello preview');
+		$bodyResult = new Horde_Imap_Client_Fetch_Results();
+		$bodyResult[$messageId] = $bodyData;
+
+		$queries = [];
+		$imapClient = $this->createMock(Horde_Imap_Client_Socket::class);
+		$imapClient->expects($this->exactly(3))
+			->method('fetch')
+			->willReturnCallback(function ($mailbox, Horde_Imap_Client_Fetch_Query $query) use (&$queries, $structureResult, $bodyResult) {
+				$queries[] = $query;
+				return match (count($queries)) {
+					1 => $structureResult,
+					2 => new Horde_Imap_Client_Fetch_Results(),
+					default => $bodyResult,
+				};
+			});
+		$this->sMimeService->expects($this->once())->method('addEncryptionCheckQueries');
+		$this->sMimeService->method('isEncrypted')->willReturn(false);
+
+		$data = $this->mapper->getBodyStructureData($imapClient, 'INBOX', [$messageId], 'alice@example.org');
+
+		$this->assertTrue($queries[1]->contains(Horde_Imap_Client::FETCH_MIMEHEADER));
+		$this->assertTrue($queries[1]->contains(Horde_Imap_Client::FETCH_BODYPART));
+		$this->assertFalse($queries[2]->contains(Horde_Imap_Client::FETCH_MIMEHEADER));
+		$this->assertTrue($queries[2]->contains(Horde_Imap_Client::FETCH_BODYPART));
+		$this->assertEquals('hello preview', $data[$messageId]->getPreviewText());
 	}
 }

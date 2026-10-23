@@ -475,10 +475,9 @@ class ImapMessageFetcher {
 	 */
 	private function loadBodyData(Horde_Mime_Part $p, string $partNo, bool $isFetched): string {
 		if (!$isFetched) {
-			// Some servers (Kakao) return nothing for BODY[1.MIME] of a
-			// single-part message, which empties the whole FETCH. The
-			// encoding is already known from BODYSTRUCTURE, so retry without.
-			$fetch = $this->fetchBodyPart($partNo, true) ?? $this->fetchBodyPart($partNo, false);
+			// The encoding is already known from BODYSTRUCTURE when the MIME
+			// header is missing. fetchBodyParts retries without it.
+			$fetch = self::fetchBodyParts($this->client, $this->mailbox, $this->uid, [$partNo]);
 			if (is_null($fetch)) {
 				throw new DoesNotExistException("Mail body for this mail($this->uid) could not be loaded");
 			}
@@ -495,18 +494,48 @@ class ImapMessageFetcher {
 		return $this->converter->convert($p);
 	}
 
-	private function fetchBodyPart(string $partNo, bool $withMimeHeader): ?Horde_Imap_Client_Data_Fetch {
-		$query = new Horde_Imap_Client_Fetch_Query();
-		$query->bodyPart($partNo, [
-			'peek' => true
-		]);
-		if ($withMimeHeader) {
-			$query->mimeHeader($partNo, [
-				'peek' => true
-			]);
+	/**
+	 * Body parts of one message. Some servers (Kakao) answer nothing for
+	 * BODY[n.MIME] of a single-part message, and that empty reply drops the
+	 * whole FETCH, so a miss is tried once more without the MIME header.
+	 * A message that is really gone is fetched twice.
+	 *
+	 * $withQuery runs on both attempts. Attachment fetches use it to keep
+	 * the S/MIME encryption check on the retry.
+	 *
+	 * @param list<string> $partIds
+	 * @param null|callable(Horde_Imap_Client_Fetch_Query): void $withQuery
+	 */
+	public static function fetchBodyParts(
+		Horde_Imap_Client_Base $client,
+		string $mailbox,
+		int $uid,
+		array $partIds,
+		?callable $withQuery = null,
+	): ?Horde_Imap_Client_Data_Fetch {
+		$ids = new Horde_Imap_Client_Ids([$uid]);
+		$fetch = null;
+		foreach ([true, false] as $withMimeHeader) {
+			$query = new Horde_Imap_Client_Fetch_Query();
+			foreach ($partIds as $partId) {
+				$query->bodyPart($partId, [
+					'peek' => true,
+				]);
+				if ($withMimeHeader) {
+					$query->mimeHeader($partId, [
+						'peek' => true,
+					]);
+				}
+			}
+			if ($withQuery !== null) {
+				$withQuery($query);
+			}
+			$fetch = $client->fetch($mailbox, $query, ['ids' => $ids])[$uid];
+			if ($fetch !== null) {
+				return $fetch;
+			}
 		}
-		$result = $this->client->fetch($this->mailbox, $query, ['ids' => new Horde_Imap_Client_Ids($this->uid)]);
-		return $result[$this->uid];
+		return $fetch;
 	}
 
 	private function hasAttachments(Horde_Mime_Part $part): bool {

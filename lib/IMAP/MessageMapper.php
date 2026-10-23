@@ -750,33 +750,18 @@ class MessageMapper {
 		string $userId): Attachment {
 		// TODO: compare logic and merge with getAttachments()
 
-		$query = new Horde_Imap_Client_Fetch_Query();
-		$query->bodyPart($attachmentId, [
-			'peek' => true,
-		]);
-		$query->mimeHeader($attachmentId, [
-			'peek' => true,
-		]);
-		$this->smimeService->addEncryptionCheckQueries($query);
-
 		$uids = new Horde_Imap_Client_Ids($messageUid);
-		$headers = $client->fetch($mailbox, $query, ['ids' => $uids]);
-		if (!isset($headers[$messageUid])) {
-			// Some servers (Kakao) return nothing for BODY[n.MIME] of a
-			// single-part message. Retry without the MIME header.
-			$query = new Horde_Imap_Client_Fetch_Query();
-			$query->bodyPart($attachmentId, [
-				'peek' => true,
-			]);
-			$this->smimeService->addEncryptionCheckQueries($query);
-			$headers = $client->fetch($mailbox, $query, ['ids' => $uids]);
-		}
-		if (!isset($headers[$messageUid])) {
+		// S/MIME check stays on the retry. See ImapMessageFetcher::fetchBodyParts().
+		$fetch = ImapMessageFetcher::fetchBodyParts(
+			$client,
+			$mailbox,
+			$messageUid,
+			[$attachmentId],
+			fn (Horde_Imap_Client_Fetch_Query $query) => $this->smimeService->addEncryptionCheckQueries($query),
+		);
+		if ($fetch === null) {
 			throw new DoesNotExistException('Unable to load the attachment.');
 		}
-
-		/** @var Horde_Imap_Client_Data_Fetch $fetch */
-		$fetch = $headers[$messageUid];
 
 		/** @var Horde_Mime_Headers $mimeHeaders */
 		$mimeHeaders = $fetch->getMimeHeader($attachmentId, Horde_Imap_Client_Data_Fetch::HEADER_PARSE);
@@ -925,44 +910,19 @@ class MessageMapper {
 			if ($textBodyId === null && $htmlBodyId === null) {
 				return new MessageStructureData($hasAttachments, $text, $isImipMessage, $isEncrypted, false);
 			}
-			$partsQuery = new Horde_Imap_Client_Fetch_Query();
-			if ($htmlBodyId !== null) {
-				$partsQuery->bodyPart($htmlBodyId, [
-					'peek' => true,
-				]);
-				$partsQuery->mimeHeader($htmlBodyId, [
-					'peek' => true
-				]);
-			}
-			if ($textBodyId !== null) {
-				$partsQuery->bodyPart($textBodyId, [
-					'peek' => true,
-				]);
-				$partsQuery->mimeHeader($textBodyId, [
-					'peek' => true
-				]);
-			}
-			$parts = $client->fetch($mailbox, $partsQuery, [
-				'ids' => new Horde_Imap_Client_Ids([$fetchData->getUid()]),
-			]);
-			/** @var Horde_Imap_Client_Data_Fetch $part */
-			$part = $parts[$fetchData->getUid()];
-			if ($part === null) {
-				// Some servers (Kakao) return nothing for BODY[n.MIME] of a
-				// single-part message, which empties the whole FETCH. Retry
-				// without; convertBody() falls back to the message headers.
-				$bodyOnly = new Horde_Imap_Client_Fetch_Query();
-				foreach ([$htmlBodyId, $textBodyId] as $bodyId) {
-					if ($bodyId !== null) {
-						$bodyOnly->bodyPart($bodyId, [
-							'peek' => true,
-						]);
-					}
+			$partIds = [];
+			foreach ([$htmlBodyId, $textBodyId] as $bodyId) {
+				if ($bodyId !== null) {
+					$partIds[] = (string)$bodyId;
 				}
-				$part = $client->fetch($mailbox, $bodyOnly, [
-					'ids' => new Horde_Imap_Client_Ids([$fetchData->getUid()]),
-				])[$fetchData->getUid()];
 			}
+			/** @var Horde_Imap_Client_Data_Fetch|null $part */
+			$part = ImapMessageFetcher::fetchBodyParts(
+				$client,
+				$mailbox,
+				(int)$fetchData->getUid(),
+				$partIds,
+			);
 			// A delete / move in the middle of this processing
 			if ($part === null) {
 				return new MessageStructureData($hasAttachments, $text, $isImipMessage, $isEncrypted, false);

@@ -40,6 +40,14 @@ class BodyCacheService {
 	private const USER_DAYS = 'body_cache_days';
 	private const USER_MB = 'body_cache_mb';
 	public const UNLIMITED = -1;
+	/** Body was stored. */
+	public const PUT_STORED = 1;
+	/** Already cached, the same Message-ID, or outside the window. */
+	public const PUT_SKIP = 2;
+	/** Encrypted, or the body cannot be encoded. Do not try again. */
+	public const PUT_EXCLUDED = 3;
+	/** Size limit reached. Stop filling this account; do not remember the message. */
+	public const PUT_FULL = 4;
 	private const TABLE = 'mail_body_cache';
 
 	public function __construct(
@@ -183,19 +191,21 @@ class BodyCacheService {
 	/**
 	 * Keeps the body when the message is inside the user's window and fits
 	 * the user's size limit. Encrypted messages are never stored.
+	 *
+	 * @return int PUT_STORED, PUT_SKIP, PUT_EXCLUDED or PUT_FULL
 	 */
-	public function put(string $userId, int $accountId, Message $message, IMAPMessage $imapMessage): bool {
+	public function put(string $userId, int $accountId, Message $message, IMAPMessage $imapMessage): int {
 		$limits = $this->userLimits($userId);
 		if ($limits['days'] === 0 || $this->has($message->getId())
 			|| $this->copyOf($accountId, (string)$message->getMessageId()) !== null) {
-			return false;
+			return self::PUT_SKIP;
 		}
 		$pinned = $this->isPinned($accountId, $message);
 		if (!$pinned && !$this->inWindow($message, $limits['days'])) {
-			return false;
+			return self::PUT_SKIP;
 		}
 		if ($imapMessage->isEncrypted() || $message->isEncrypted() || ($imapMessage->jsonSerialize()['isPgpMimeEncrypted'] ?? false)) {
-			return false;
+			return self::PUT_EXCLUDED;
 		}
 		$payload = [
 			'full' => $imapMessage->getFullMessage($message->getId()),
@@ -206,18 +216,18 @@ class BodyCacheService {
 		];
 		$json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 		if ($json === false) {
-			return false;
+			return self::PUT_EXCLUDED;
 		}
 		$data = gzencode($json, 6);
 		if ($data === false) {
-			return false;
+			return self::PUT_EXCLUDED;
 		}
 		// Pinned bodies are kept even when only they fill the limit
 		if (!$this->makeRoom($userId, strlen($data), $limits['mb'], (int)$message->getSentAt()) && !$pinned) {
-			return false;
+			return self::PUT_FULL;
 		}
 		$this->insert($userId, $accountId, $message, $data);
-		return true;
+		return self::PUT_STORED;
 	}
 
 	/**
